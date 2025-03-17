@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2016",
+    "module": "commonjs",
+    "outDir": "./dist",
+    "strict": false,               // Mudamos para false para ser mais permissivo
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "./src",
+    "noImplicitAny": false         // Adicionamos isso para permitir tipos 'any' implícitos
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}

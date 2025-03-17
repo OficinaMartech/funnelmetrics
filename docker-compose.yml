@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  # Banco de dados principal (PostgreSQL)
+  postgres:
+    image: postgres:14
+    container_name: funnelmetrics_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: funneluser
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: funnelmetrics
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - funnelmetrics_network
+
+  # Banco de dados para analytics (ClickHouse)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: funnelmetrics_clickhouse
+    restart: always
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DB: tracking
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    networks:
+      - funnelmetrics_network
+
+  # Redis para cache e sessões
+  redis:
+    image: redis:7-alpine
+    container_name: funnelmetrics_redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - funnelmetrics_network
+
+  # RabbitMQ para filas de eventos
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: funnelmetrics_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: funneluser
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - funnelmetrics_network
+
+  # API principal
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: funnelmetrics_api
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: funneluser
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: funnelmetrics
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: funneluser
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    ports:
+      - "4000:4000"
+    networks:
+      - funnelmetrics_network
+
+  # Serviço de tracking
+  tracking:
+    build:
+      context: ./tracking
+      dockerfile: Dockerfile
+    container_name: funnelmetrics_tracking
+    restart: always
+    depends_on:
+      - rabbitmq
+      - clickhouse
+    environment:
+      NODE_ENV: production
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: funneluser
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      CLICKHOUSE_HOST: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DB: tracking
+    ports:
+      - "3001:3001"
+    networks:
+      - funnelmetrics_network
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: funnelmetrics_frontend
+    restart: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: https://funnels.oficinamartech.com/api
+      NEXT_PUBLIC_TRACK_URL: https://funnels.oficinamartech.com/track
+    ports:
+      - "3000:3000"
+    networks:
+      - funnelmetrics_network
+
+networks:
+  funnelmetrics_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+  rabbitmq_data:
