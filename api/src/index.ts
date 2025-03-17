@@ -1,27 +1,13 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
+// ~/funnelmetrics/api/src/index.ts
+import dotenv from 'dotenv';
 
-const app = express();
-const PORT = process.env.PORT || 4000;
+// Carregar variáveis de ambiente
+dotenv.config();
 
-// Middlewares
-app.use(cors());
-app.use(helmet());
-app.use(morgan('combined'));
-app.use(express.json());
+import { startServer } from './app';
 
-// Rota básica da API
-app.get('/api/health', (_, res) => {
-  res.status(200).send({ status: 'ok' });
-});
-
-// Rota de teste
-app.get('/api/test', (_, res) => {
-  res.status(200).send({ message: 'API funcionando corretamente!' });
-});
-
-app.listen(PORT, () => {
-  console.log(`API rodando na porta ${PORT}`);
+// Iniciar o servidor
+startServer().catch((error) => {
+  console.error('Erro ao iniciar o servidor:', error);
+  process.exit(1);
 });
