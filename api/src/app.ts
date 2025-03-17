@@ -16,7 +16,7 @@ app.use(morgan('dev')); // Logging
 app.use(express.json()); // Parsing de JSON
 app.use(cookieParser()); // Parsing de cookies
 
-// Configuração de CORS
+// Configuração de CORS ok
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
