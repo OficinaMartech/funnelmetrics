@@ -1,56 +1,30 @@
-// ~/funnelmetrics/api/src/app.ts
-import express, { Application } from 'express';
+import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-import sequelize from './config/database';
 import authRoutes from './routes/authRoutes';
+import subscriptionRoutes from './routes/subscriptionRoutes';
+import { rateLimiter } from './middlewares/rateLimiterMiddleware';
 
-// Inicializar Express
-const app: Application = express();
+const app = express();
 
-// Middlewares
-app.use(helmet()); // Ajuda na segurança da aplicação
-app.use(morgan('dev')); // Logging
-app.use(express.json()); // Parsing de JSON
-app.use(cookieParser()); // Parsing de cookies
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+}));
 
-// Configuração de CORS ok
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    credentials: true, // Permite cookies em requisições cross-origin
-  })
-);
+app.use(express.json());
+app.use(cookieParser());
+
+// Aplicar rate limiter em rotas de autenticação
+app.use('/api/auth', rateLimiter);
 
 // Rotas
 app.use('/api/auth', authRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
-// Rota de teste
-app.get('/api/health', (_, res) => {
-  res.status(200).send({ status: 'ok' });
+// Rota de saúde/health
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
 });
 
-// Sincronizar o modelo com o banco de dados
-const syncDatabase = async (): Promise<void> => {
-  try {
-    await sequelize.sync({ alter: true });
-    console.log('Banco de dados sincronizado com sucesso');
-  } catch (error) {
-    console.error('Erro ao sincronizar banco de dados:', error);
-  }
-};
-
-// Inicializar servidor
-const PORT = process.env.PORT || 4000;
-
-const startServer = async (): Promise<void> => {
-  await syncDatabase();
-  
-  app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-  });
-};
-
-export { app, startServer };
+export default app;

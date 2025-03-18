@@ -1,210 +1,113 @@
-// ~/funnelmetrics/api/src/services/emailService.ts
 import nodemailer from 'nodemailer';
-import dotenv from 'dotenv';
 
-// Carregar variáveis de ambiente
-dotenv.config();
-
-// Interface para dados de email
 interface EmailData {
   name: string;
   email: string;
   resetURL?: string;
+  subscriptionDetails?: any;
 }
 
-// Criar transportador para cada serviço suportado
-const createTransporter = async () => {
-  // Verificar se estamos em ambiente de produção
-  if (process.env.NODE_ENV === 'production') {
-    // Verificar qual serviço de email está configurado
-    const emailService = process.env.EMAIL_SERVICE?.toLowerCase();
+class EmailService {
+  private transporter: nodemailer.Transporter;
 
-    // SendGrid
-    if (emailService === 'sendgrid') {
-      return nodemailer.createTransport({
-        service: 'SendGrid',
-        auth: {
-          user: process.env.SENDGRID_USER,
-          pass: process.env.SENDGRID_API_KEY,
-        },
-      });
-    }
-
-    // AWS SES
-    if (emailService === 'ses') {
-      return nodemailer.createTransport({
-        service: 'SES',
-        auth: {
-          user: process.env.AWS_SES_ACCESS_KEY,
-          pass: process.env.AWS_SES_SECRET_KEY,
-        },
-      });
-    }
-
-    // SMTP padrão
-    return nodemailer.createTransport({
-      host: process.env.EMAIL_HOST,
-      port: Number(process.env.EMAIL_PORT) || 587,
-      secure: process.env.EMAIL_SECURE === 'true',
+  constructor() {
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD
+      }
     });
-  } else {
-    // Em desenvolvimento, usar Ethereal para testes
-    try {
-      const testAccount = await nodemailer.createTestAccount();
-      return nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
-        },
-      });
-    } catch (error) {
-      console.error('Erro ao criar conta de teste Ethereal:', error);
-      throw new Error('Não foi possível configurar o serviço de email para testes');
-    }
   }
-};
 
-// Função para obter o URL de visualização do email (apenas em desenvolvimento)
-const getEmailPreviewUrl = (info: any): string | null => {
-  if (process.env.NODE_ENV !== 'production' && typeof nodemailer.getTestMessageUrl === 'function') {
-    return nodemailer.getTestMessageUrl(info);
-  }
-  return null;
-};
-
-// Função para enviar email de recuperação de senha
-export const sendPasswordResetEmail = async ({ name, email, resetURL }: EmailData): Promise<any> => {
-  try {
-    if (!resetURL) {
-      throw new Error('URL de redefinição de senha não fornecida');
-    }
-
-    const transporter = await createTransporter();
-    
-    const mailOptions = {
-      from: `"FunnelMetrics" <${process.env.EMAIL_FROM || 'noreply@funnelmetrics.com'}>`,
+  // Enviar email de redefinição de senha
+  async sendPasswordResetEmail({ name, email, resetURL }: EmailData): Promise<any> {
+    const message = {
+      from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
       to: email,
-      subject: 'Recuperação de Senha - FunnelMetrics',
+      subject: 'Redefinição de Senha',
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4f46e5;">Recuperação de Senha</h2>
-          <p>Olá ${name},</p>
-          <p>Recebemos uma solicitação para redefinir a senha da sua conta no FunnelMetrics.</p>
-          <p>Clique no botão abaixo para redefinir sua senha:</p>
-          <div style="margin: 30px 0;">
-            <a href="${resetURL}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Redefinir Senha</a>
-          </div>
-          <p style="margin-bottom: 30px;">Se você não solicitou uma redefinição de senha, por favor ignore este email.</p>
-          <p style="color: #666; font-size: 14px;">Este link expirará em 1 hora por motivos de segurança.</p>
-          <hr style="border: 1px solid #eee; margin: 30px 0;" />
-          <p style="color: #666; font-size: 12px;">© 2025 FunnelMetrics. Todos os direitos reservados.</p>
-        </div>
-      `,
+        <p>Olá ${name},</p>
+        <p>Você solicitou a redefinição de sua senha.</p>
+        <p>Clique no link abaixo para redefinir sua senha:</p>
+        <a href="${resetURL}" target="_blank">Redefinir Senha</a>
+        <p>Este link é válido por 10 minutos.</p>
+        <p>Se você não solicitou esta redefinição, ignore este email.</p>
+        <p>Atenciosamente,<br>Equipe Funnel Metrics</p>
+      `
     };
-    
-    const info = await transporter.sendMail(mailOptions);
-    const previewURL = getEmailPreviewUrl(info);
-    
-    return {
-      success: true,
-      messageId: info.messageId,
-      previewURL,
-    };
-  } catch (error) {
-    console.error('Erro ao enviar email de recuperação de senha:', error);
-    throw new Error('Erro ao enviar email de recuperação de senha');
-  }
-};
 
-// Função para enviar email de boas-vindas
-export const sendWelcomeEmail = async ({ name, email }: EmailData): Promise<any> => {
-  try {
-    const transporter = await createTransporter();
-    
-    const mailOptions = {
-      from: `"FunnelMetrics" <${process.env.EMAIL_FROM || 'noreply@funnelmetrics.com'}>`,
+    return this.transporter.sendMail(message);
+  }
+
+  // Enviar email de boas-vindas
+  async sendWelcomeEmail({ name, email }: EmailData): Promise<any> {
+    const message = {
+      from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
       to: email,
-      subject: 'Bem-vindo ao FunnelMetrics',
+      subject: 'Bem-vindo ao Funnel Metrics',
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4f46e5;">Bem-vindo ao FunnelMetrics!</h2>
-          <p>Olá ${name},</p>
-          <p>Obrigado por se cadastrar no FunnelMetrics, sua plataforma para criação e análise de funis de marketing.</p>
-          <p>Estamos animados para ajudá-lo a otimizar suas conversões e melhorar suas campanhas de marketing.</p>
-          <div style="margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Acessar minha conta</a>
-          </div>
-          <p>Precisa de ajuda? Entre em contato com nosso suporte:</p>
-          <p><a href="mailto:suporte@funnelmetrics.com" style="color: #4f46e5;">suporte@funnelmetrics.com</a></p>
-          <hr style="border: 1px solid #eee; margin: 30px 0;" />
-          <p style="color: #666; font-size: 12px;">© 2025 FunnelMetrics. Todos os direitos reservados.</p>
-        </div>
-      `,
+        <p>Olá ${name},</p>
+        <p>Bem-vindo ao Funnel Metrics!</p>
+        <p>Estamos muito felizes em ter você como parte da nossa comunidade.</p>
+        <p>Para começar, acesse seu painel e configure seu primeiro funil:</p>
+        <a href="${process.env.FRONTEND_URL}/dashboard" target="_blank">Acessar Painel</a>
+        <p>Se precisar de ajuda, estamos à disposição.</p>
+        <p>Atenciosamente,<br>Equipe Funnel Metrics</p>
+      `
     };
-    
-    const info = await transporter.sendMail(mailOptions);
-    const previewURL = getEmailPreviewUrl(info);
-    
-    return {
-      success: true,
-      messageId: info.messageId,
-      previewURL,
-    };
-  } catch (error) {
-    console.error('Erro ao enviar email de boas-vindas:', error);
-    throw new Error('Erro ao enviar email de boas-vindas');
-  }
-};
 
-// Função para enviar email de confirmação de assinatura
-export const sendSubscriptionConfirmationEmail = async ({ name, email }: EmailData): Promise<any> => {
-  try {
-    const transporter = await createTransporter();
-    
-    const mailOptions = {
-      from: `"FunnelMetrics" <${process.env.EMAIL_FROM || 'noreply@funnelmetrics.com'}>`,
+    return this.transporter.sendMail(message);
+  }
+
+  // Enviar email de confirmação de assinatura
+  async sendSubscriptionConfirmationEmail({ name, email, subscriptionDetails }: EmailData): Promise<any> {
+    const message = {
+      from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
       to: email,
-      subject: 'Assinatura Confirmada - FunnelMetrics',
+      subject: 'Confirmação de Assinatura',
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4f46e5;">Assinatura Confirmada!</h2>
-          <p>Olá ${name},</p>
-          <p>Sua assinatura do plano FunnelMetrics foi confirmada com sucesso!</p>
-          <p>A partir de agora, você tem acesso a todos os recursos premium da nossa plataforma.</p>
-          <div style="margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Acessar minha conta</a>
-          </div>
-          <p>Precisa de ajuda? Entre em contato com nosso suporte:</p>
-          <p><a href="mailto:suporte@funnelmetrics.com" style="color: #4f46e5;">suporte@funnelmetrics.com</a></p>
-          <hr style="border: 1px solid #eee; margin: 30px 0;" />
-          <p style="color: #666; font-size: 12px;">© 2025 FunnelMetrics. Todos os direitos reservados.</p>
-        </div>
-      `,
+        <p>Olá ${name},</p>
+        <p>Sua assinatura foi confirmada com sucesso!</p>
+        <p>Detalhes da assinatura:</p>
+        <ul>
+          <li>Plano: ${subscriptionDetails?.plan || 'Padrão'}</li>
+          <li>Valor: ${subscriptionDetails?.amount || '0.00'}</li>
+          <li>Data de início: ${subscriptionDetails?.startDate || 'hoje'}</li>
+        </ul>
+        <p>Agradecemos pela confiança!</p>
+        <p>Atenciosamente,<br>Equipe Funnel Metrics</p>
+      `
     };
-    
-    const info = await transporter.sendMail(mailOptions);
-    const previewURL = getEmailPreviewUrl(info);
-    
-    return {
-      success: true,
-      messageId: info.messageId,
-      previewURL,
-    };
-  } catch (error) {
-    console.error('Erro ao enviar email de confirmação de assinatura:', error);
-    throw new Error('Erro ao enviar email de confirmação de assinatura');
-  }
-};
 
-export default {
-  sendPasswordResetEmail,
-  sendWelcomeEmail,
-  sendSubscriptionConfirmationEmail,
-};
+    return this.transporter.sendMail(message);
+  }
+
+  // Enviar email de falha de pagamento
+  async sendPaymentFailedEmail({ name, email, subscriptionDetails }: EmailData): Promise<any> {
+    const message = {
+      from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
+      to: email,
+      subject: 'Falha no Pagamento da Assinatura',
+      html: `
+        <p>Olá ${name},</p>
+        <p>Identificamos uma falha no processamento do pagamento da sua assinatura.</p>
+        <p>Detalhes:</p>
+        <ul>
+          <li>Plano: ${subscriptionDetails?.plan || 'Padrão'}</li>
+          <li>Data da tentativa: ${new Date().toLocaleDateString()}</li>
+        </ul>
+        <p>Por favor, verifique seus dados de pagamento no painel:</p>
+        <a href="${process.env.FRONTEND_URL}/dashboard/billing" target="_blank">Atualizar Dados de Pagamento</a>
+        <p>Se precisar de ajuda, entre em contato com nosso suporte.</p>
+        <p>Atenciosamente,<br>Equipe Funnel Metrics</p>
+      `
+    };
+
+    return this.transporter.sendMail(message);
+  }
+}
+
+export default new EmailService();

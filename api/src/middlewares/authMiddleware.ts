@@ -1,66 +1,76 @@
-// ~/funnelmetrics/api/src/middlewares/authMiddleware.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import authConfig from '../config/auth';
 import User from '../models/User';
 
-// Estendendo a interface Request para incluir o usuário
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
-    }
-  }
-}
-
-export const authenticate = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<any> => {
+export const protect = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Obter token do header Authorization
-    const authHeader = req.headers.authorization;
+    let token;
     
-    if (!authHeader) {
-      return res.status(401).json({ message: 'Token não fornecido' });
+    // Verificar se existe token no header Authorization
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies?.token) {
+      // Verificar se existe token nos cookies
+      token = req.cookies.token;
     }
-
-    // O formato deve ser 'Bearer TOKEN'
-    const parts = authHeader.split(' ');
     
-    if (parts.length !== 2) {
-      return res.status(401).json({ message: 'Erro no formato do token' });
+    // Verificar se token existe
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Não autorizado, token não encontrado'
+      });
     }
-
-    const [scheme, token] = parts;
     
-    if (!/^Bearer$/i.test(scheme)) {
-      return res.status(401).json({ message: 'Token malformatado' });
-    }
-
     try {
       // Verificar token
-      const decoded = jwt.verify(token, authConfig.jwtSecret) as { id: number };
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'defaultsecret') as any;
       
-      // Buscar usuário pelo ID
-      const user = await User.findByPk(decoded.id, {
-        attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] },
-      });
+      // Obter usuário do token
+      const user = await User.findById(decoded.id);
       
       if (!user) {
-        return res.status(401).json({ message: 'Usuário não encontrado' });
+        return res.status(401).json({
+          success: false,
+          message: 'Não autorizado, usuário não encontrado'
+        });
       }
-
-      // Adicionar usuário ao objeto request
-      req.user = user;
       
-      return next();
-    } catch (err) {
-      return res.status(401).json({ message: 'Token inválido' });
+      // Adicionar usuário à requisição
+      req.user = user;
+      next();
+      
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Não autorizado, token inválido'
+      });
     }
   } catch (error) {
     console.error('Erro no middleware de autenticação:', error);
-    return res.status(500).json({ message: 'Erro interno do servidor' });
+    return res.status(500).json({
+      success: false,
+      message: 'Erro no servidor'
+    });
   }
+};
+
+export const authorize = (...roles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Não autorizado, faça login primeiro'
+      });
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: `Acesso negado para usuários com perfil ${req.user.role}`
+      });
+    }
+    
+    next();
+  };
 };
