@@ -1,65 +1,91 @@
-import mongoose, { Schema, Document } from 'mongoose';
-import bcrypt from 'bcrypt';
+// ~/funnelmetrics/api/src/models/User.ts
+import { DataTypes, Model, Optional } from 'sequelize';
+import bcrypt from 'bcryptjs';
+import sequelize from '../config/database';
 
-export interface IUser extends Document {
+interface UserAttributes {
+  id: number;
   name: string;
   email: string;
   password: string;
-  role: string;
   resetPasswordToken?: string;
-  resetPasswordExpire?: Date;
-  createdAt: Date;
-  comparePassword(candidatePassword: string): Promise<boolean>;
+  resetPasswordExpires?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-const UserSchema: Schema = new Schema({
-  name: {
-    type: String,
-    required: [true, 'Por favor adicione um nome']
-  },
-  email: {
-    type: String,
-    required: [true, 'Por favor adicione um email'],
-    unique: true,
-    match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-      'Por favor adicione um email válido'
-    ]
-  },
-  password: {
-    type: String,
-    required: [true, 'Por favor adicione uma senha'],
-    minlength: 6,
-    select: false
-  },
-  role: {
-    type: String,
-    enum: ['user', 'admin'],
-    default: 'user'
-  },
-  resetPasswordToken: String,
-  resetPasswordExpire: Date,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+export interface UserInput extends Optional<UserAttributes, 'id' | 'resetPasswordToken' | 'resetPasswordExpires'> {}
+export interface UserOutput extends Required<UserAttributes> {}
 
-// Encriptar senha usando bcrypt
-UserSchema.pre<IUser>('save', async function(next) {
-  if (!this.isModified('password')) {
-    next();
-    return;
-  }
+class User extends Model<UserAttributes, UserInput> implements UserAttributes {
+  public id!: number;
+  public name!: string;
+  public email!: string;
+  public password!: string;
+  public resetPasswordToken!: string;
+  public resetPasswordExpires!: Date;
   
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
+  public readonly createdAt!: Date;
+  public readonly updatedAt!: Date;
 
-// Método para comparar senhas
-UserSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+  // Este método compara a senha fornecida com a senha hash armazenada
+  public async comparePassword(password: string): Promise<boolean> {
+    return bcrypt.compare(password, this.password);
+  }
+}
 
-export default mongoose.model<IUser>('User', UserSchema);
+User.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      validate: {
+        isEmail: true,
+      },
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    resetPasswordToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    resetPasswordExpires: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+  },
+  {
+    sequelize,
+    modelName: 'User',
+    tableName: 'users',
+    hooks: {
+      // Hook para hash da senha antes de salvar
+      beforeCreate: async (user) => {
+        if (user.password) {
+          const salt = await bcrypt.genSalt(10);
+          user.password = await bcrypt.hash(user.password, salt);
+        }
+      },
+      beforeUpdate: async (user) => {
+        if (user.changed('password')) {
+          const salt = await bcrypt.genSalt(10);
+          user.password = await bcrypt.hash(user.password, salt);
+        }
+      },
+    },
+  }
+);
+
+export default User;

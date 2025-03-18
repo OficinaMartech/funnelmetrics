@@ -1,131 +1,98 @@
-import mongoose, { Schema, Document } from 'mongoose';
+// ~/funnelmetrics/api/src/services/loginHistoryService.ts
+import LoginHistory from '../models/LoginHistory';
 import geoip from 'geoip-lite';
 
-interface ILoginHistory extends Document {
-  user: mongoose.Types.ObjectId | null;
-  email: string;
-  ip: string;
-  successful: boolean;
-  location?: {
-    country?: string;
-    city?: string;
-    timezone?: string;
-  };
-  userAgent?: string;
-  createdAt: Date;
+interface LoginAttemptData {
+  userId: number;
+  ipAddress: string;
+  userAgent: string;
+  status: 'success' | 'failed';
+  details?: string;
 }
 
-const LoginHistorySchema: Schema = new Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  email: {
-    type: String,
-    required: true
-  },
-  ip: {
-    type: String,
-    required: true
-  },
-  successful: {
-    type: Boolean,
-    required: true
-  },
-  location: {
-    country: String,
-    city: String,
-    timezone: String
-  },
-  userAgent: String,
-  createdAt: {
-    type: Date,
-    default: Date.now
+// Registrar uma tentativa de login (bem-sucedida ou falha)
+export const recordLoginAttempt = async (data: LoginAttemptData): Promise<LoginHistory> => {
+  try {
+    // Tentar obter localização pelo IP
+    let location = '';
+    const geo = geoip.lookup(data.ipAddress);
+    
+    if (geo) {
+      location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country || ''}`.replace(/^, |, $/, '');
+    }
+    
+    // Criar registro no histórico
+    const loginHistory = await LoginHistory.create({
+      userId: data.userId,
+      ipAddress: data.ipAddress,
+      userAgent: data.userAgent,
+      location,
+      status: data.status,
+      details: data.details,
+    });
+    
+    return loginHistory;
+  } catch (error) {
+    console.error('Erro ao registrar tentativa de login:', error);
+    throw new Error('Erro ao registrar tentativa de login');
   }
-});
+};
 
-const LoginHistory = mongoose.model<ILoginHistory>('LoginHistory', LoginHistorySchema);
+// Obter histórico de login de um usuário
+export const getLoginHistoryByUserId = async (userId: number, limit: number = 10): Promise<LoginHistory[]> => {
+  try {
+    const history = await LoginHistory.findAll({
+      where: { userId },
+      order: [['createdAt', 'DESC']],
+      limit,
+    });
+    
+    return history;
+  } catch (error) {
+    console.error('Erro ao buscar histórico de login:', error);
+    throw new Error('Erro ao buscar histórico de login');
+  }
+};
 
-class LoginHistoryService {
-  // Adicionar registro de login bem-sucedido
-  async addSuccessfulLogin(userId: string, ip: string, geo: any = null, userAgent?: string): Promise<void> {
-    try {
-      const user = await mongoose.model('User').findById(userId);
-      
-      if (!user) {
-        console.error('Usuário não encontrado ao registrar login bem-sucedido');
-        return;
-      }
-      
-      await LoginHistory.create({
-        user: userId,
-        email: user.email,
-        ip,
-        successful: true,
-        location: geo ? {
-          country: geo.country,
-          city: geo.city,
-          timezone: geo.timezone
-        } : undefined,
-        userAgent
-      });
-    } catch (error) {
-      console.error('Erro ao registrar login bem-sucedido:', error);
+// Verificar atividade suspeita nos logins de um usuário
+export const checkSuspiciousActivity = async (userId: number, ipAddress: string): Promise<{ suspicious: boolean; reason?: string }> => {
+  try {
+    // Buscar histórico recente de logins do usuário
+    const recentHistory = await LoginHistory.findAll({
+      where: { 
+        userId,
+        status: 'success',
+      },
+      order: [['createdAt', 'DESC']],
+      limit: 5,
+    });
+    
+    // Se não houver histórico, é o primeiro login (não é suspeito)
+    if (recentHistory.length === 0) {
+      return { suspicious: false };
     }
-  }
-  
-  // Adicionar registro de tentativa de login falha
-  async addFailedAttempt(email: string, ip: string, userAgent?: string): Promise<void> {
-    try {
-      const geo = geoip.lookup(ip);
-      
-      await LoginHistory.create({
-        user: null,
-        email,
-        ip,
-        successful: false,
-        location: geo ? {
-          country: geo.country,
-          city: geo.city,
-          timezone: geo.timezone
-        } : undefined,
-        userAgent
-      });
-    } catch (error) {
-      console.error('Erro ao registrar tentativa de login falha:', error);
+    
+    // Verificar se o IP atual é diferente dos IPs anteriores
+    const knownIPs = recentHistory.map(h => h.ipAddress);
+    if (!knownIPs.includes(ipAddress)) {
+      return { 
+        suspicious: true,
+        reason: 'login_from_new_location'
+      };
     }
+    
+    // Outras verificações de segurança podem ser adicionadas aqui
+    
+    return { suspicious: false };
+  } catch (error) {
+    console.error('Erro ao verificar atividade suspeita:', error);
+    // Em caso de erro, não bloquear o login
+    return { suspicious: false };
   }
-  
-  // Obter histórico de login de um usuário
-  async getUserLoginHistory(userId: string, limit = 10): Promise<any[]> {
-    try {
-      return await LoginHistory.find({ user: userId })
-        .sort({ createdAt: -1 })
-        .limit(limit);
-    } catch (error) {
-      console.error('Erro ao obter histórico de login:', error);
-      return [];
-    }
-  }
-  
-  // Verificar se há muitas tentativas falhas recentes do mesmo IP
-  async checkSuspiciousActivity(ip: string, timeWindowMinutes = 10, maxAttempts = 5): Promise<boolean> {
-    try {
-      const timeWindow = new Date(Date.now() - timeWindowMinutes * 60 * 1000);
-      
-      const attempts = await LoginHistory.countDocuments({
-        ip,
-        successful: false,
-        createdAt: { $gt: timeWindow }
-      });
-      
-      return attempts >= maxAttempts;
-    } catch (error) {
-      console.error('Erro ao verificar atividade suspeita:', error);
-      return false;
-    }
-  }
-}
+};
 
-export const loginHistory = new LoginHistoryService();
+export default {
+  recordLoginAttempt,
+  getLoginHistoryByUserId,
+  checkSuspiciousActivity,
+};
